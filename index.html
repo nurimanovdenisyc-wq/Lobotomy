@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Лоботомия</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+  body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; color: #ccc; }
+  #game { position: fixed; inset: 0; z-index: 1; }
+  #vignette { position: fixed; inset: 0; z-index: 5; pointer-events: none; box-shadow: inset 0 0 150px rgba(0,0,0,0.9); transition: box-shadow 0.3s; }
+  #vignette.danger { box-shadow: inset 0 0 200px rgba(200,0,0,0.7); }
+  #damage-flash { position: fixed; inset: 0; background: rgba(255,0,0,0.5); z-index: 6; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  #crosshair { position: fixed; top: 50%; left: 50%; width: 6px; height: 6px; background: rgba(255,255,255,0.5); border-radius: 50%; transform: translate(-50%, -50%); z-index: 10; pointer-events: none; }
+
+  #hud { position: fixed; top: 20px; left: 20px; z-index: 10; text-shadow: 0 0 5px #000; font-size: 18px; font-weight: bold; }
+  #attempts { color: #ff4444; margin-top: 5px; }
+
+  .joy-zone { position: fixed; bottom: 30px; width: 130px; height: 130px; z-index: 20; }
+  #joy-left { left: 30px; }
+  #joy-right { right: 30px; }
+  .joy-base { width: 100%; height: 100%; border-radius: 50%; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.2); position: relative; }
+  .joy-stick { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.2); position: absolute; top: 38px; left: 38px; }
+
+  #btn-sprint { position: fixed; bottom: 170px; left: 50px; width: 70px; height: 70px; border-radius: 50%; background: rgba(200,0,0,0.3); border: 2px solid #ff4444; z-index: 20; color: #ff4444; font-weight: bold; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  #btn-sprint:active { background: rgba(200,0,0,0.6); }
+
+  #btn-interact { position: fixed; bottom: 120px; right: 40px; width: 80px; height: 80px; border-radius: 50%; background: rgba(0,255,0,0.2); border: 2px solid #00ff00; z-index: 20; color: #00ff00; font-weight: bold; font-size: 14px; display: none; align-items: center; justify-content: center; text-align: center; }
+  #btn-interact:active { background: rgba(0,255,0,0.5); }
+
+  /* UI внутри комнаты (браузер и заметки) */
+  #room-ui { position: fixed; inset: 20px; background: #111; z-index: 200; display: none; flex-direction: column; border: 2px solid #333; border-radius: 10px; overflow: hidden; }
+  #room-ui.show { display: flex; }
+  #room-header { background: #222; padding: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+  #room-header h3 { color: #fff; font-size: 16px; }
+  #room-header button { background: #900; color: #fff; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer; }
+  
+  #room-content { flex: 1; display: flex; background: #000; }
+  #browser-frame { flex: 1; border: none; background: #fff; }
+  #notes-panel { width: 300px; background: #1a1a1a; display: flex; flex-direction: column; border-left: 2px solid #333; }
+  #notes-panel textarea { flex: 1; background: #111; color: #0f0; border: none; padding: 10px; font-family: monospace; resize: none; outline: none; font-size: 14px; }
+  #notes-panel button { background: #4ade80; color: #000; border: none; padding: 15px; font-weight: bold; cursor: pointer; font-size: 16px; }
+
+  .screen { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.95); text-align: center; transition: opacity 0.5s; padding: 20px; }
+  .screen.hidden { opacity: 0; pointer-events: none; }
+  h1 { color: #a00; font-size: 32px; text-shadow: 0 0 15px red; margin-bottom: 10px; letter-spacing: 5px; }
+  p { color: #888; margin-bottom: 30px; max-width: 600px; line-height: 1.5; font-size: 15px; }
+  .btn { padding: 15px 30px; background: #111; color: #ccc; border: 2px solid #333; cursor: pointer; font-size: 16px; margin: 5px; width: 100%; max-width: 300px; font-family: inherit; transition: 0.2s; }
+  .btn:hover { background: #222; border-color: #666; color: #fff; }
+  .btn.easy { border-color: #4ade80; color: #4ade80; }
+  .btn.medium { border-color: #fbbf24; color: #fbbf24; }
+  .btn.hard { border-color: #ef4444; color: #ef4444; }
+  .lang-select { padding: 10px; background: #111; color: #fff; border: 1px solid #333; margin-bottom: 20px; font-family: inherit; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+<div id="vignette"></div>
+<div id="damage-flash"></div>
+<div id="crosshair"></div>
+
+<div id="hud">
+  <div id="hud-title">ПОБЕГ ИЗ БОЛЬНИЦЫ</div>
+  <div id="attempts">Попытки: 3</div>
+</div>
+
+<div class="joy-zone" id="joy-left"><div class="joy-base"><div class="joy-stick" id="stick-left"></div></div></div>
+<div class="joy-zone" id="joy-right"><div class="joy-base"><div class="joy-stick" id="stick-right"></div></div></div>
+<div id="btn-sprint">БЕГ</div>
+<div id="btn-interact" onclick="openComputer()">ОТКРЫТЬ<br>КОМП</div>
+
+<!-- UI Комнаты с браузером -->
+<div id="room-ui">
+  <div id="room-header">
+    <h3 id="room-title">Терминал медсестры</h3>
+    <button onclick="closeComputer()">ЗАКРЫТЬ</button>
+  </div>
+  <div id="room-content">
+    <iframe id="browser-frame" src="https://example.com" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+    <div id="notes-panel">
+      <textarea id="notes-text" placeholder="Записи..."></textarea>
+      <button onclick="useNotes()">🔓 Открыть дверь палаты</button>
+    </div>
+  </div>
+</div>
+
+<!-- Экраны игры -->
+<div id="screen-start" class="screen">
+  <select id="lang-select" class="lang-select" onchange="changeLanguage(this.value)">
+    <option value="ru">Русский</option>
+    <option value="en">English</option>
+  </select>
+  <h1 id="title">ЛОБОТОМИЯ</h1>
+  <p id="story-text">Вас привезли сюда по ошибке...</p>
+  <button class="btn easy" onclick="startGame('easy')" id="btn-easy">ЛЕГКАЯ</button>
+  <button class="btn medium" onclick="startGame('medium')" id="btn-medium">СРЕДНЯЯ</button>
+  <button class="btn hard" onclick="startGame('hard')" id="btn-hard">СЛОЖНАЯ</button>
+</div>
+
+<div id="screen-death" class="screen hidden">
+  <h1 id="death-title" style="color:red;">ВАС ПОЙМАЛИ</h1>
+  <p id="death-msg">...</p>
+  <button class="btn" onclick="retry()" id="btn-retry">ОЧНУТЬСЯ</button>
+</div>
+
+<div id="screen-win" class="screen hidden">
+  <h1 id="win-title" style="color:#4ade80;">ПОБЕГ УДАЛСЯ</h1>
+  <p id="win-text">...</p>
+  <button class="btn" onclick="location.reload()" id="btn-win-restart">СЫГРАТЬ СНОВА</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// --- ЛОКАЛИЗАЦИЯ ---
+const translations = {
+  ru: {
+    title: "ЛОБОТОМИЯ", story: "Вас привезли сюда по ошибке. Врачи готовят инструменты. Сбегите, пока они отвлеклись.",
+    easy: "ЛЕГКАЯ (3 попытки)", medium: "СРЕДНЯЯ (2 попытки)", hard: "СЛОЖНАЯ (1 попытка)",
+    hudTitle: "ПОБЕГ ИЗ БОЛЬНИЦЫ", attempts: "Попытки: ", sprint: "БЕГ",
+    deathTitle: "ВАС ПОЙМАЛИ", deathMsgZero: "Вас поймали. Лоботомия неизбежна...", deathMsg: "Вас вернули в палату. Осталось попыток: ",
+    btnRetry: "СБЕЖАТЬ СНОВА", btnRestart: "НАЧАТЬ ЗАНОВО", winTitle: "ПОБЕГ УДАЛСЯ",
+    winText: "Вы вырвались на холодный ночной воздух.", btnPlayAgain: "СЫГРАТЬ СНОВА",
+    whispers: ["Не убегай...", "Мы тебя вылечим...", "Лоботомия...", "Ты не болен...", "Иди сюда..."],
+    roomTitle: "Терминал: Открыть дверь",
+    notesPh: "Пароль от двери: 1234...",
+    btnEscape: "🔓 Открыть дверь палаты"
+  },
+  en: {
+    title: "LOBOTOMY", story: "You were brought here by mistake. The doctors are preparing tools. Escape while they are distracted.",
+    easy: "EASY (3 attempts)", medium: "MEDIUM (2 attempts)", hard: "HARD (1 attempt)",
+    hudTitle: "HOSPITAL ESCAPE", attempts: "Attempts: ", sprint: "RUN",
+    deathTitle: "YOU WERE CAUGHT", deathMsgZero: "They caught you. Lobotomy is inevitable...", deathMsg: "You were returned to the ward. Attempts left: ",
+    btnRetry: "ESCAPE AGAIN", btnRestart: "START OVER", winTitle: "ESCAPE SUCCESSFUL",
+    winText: "You broke out into the cold night air.", btnPlayAgain: "PLAY AGAIN",
+    whispers: ["Don't run...", "We will cure you...", "Lobotomy...", "You are not sick...", "Come here..."],
+    roomTitle: "Terminal: Open Door",
+    notesPh: "Door password: 1234...",
+    btnEscape: "🔓 Open ward door"
+  }
+};
+let currentLang = 'ru';
+
+function changeLanguage(lang) {
+  currentLang = lang;
+  const t = translations[lang];
+  document.getElementById('title').innerText = t.title;
+  document.getElementById('story-text').innerText = t.story;
+  document.getElementById('btn-easy').innerText = t.easy;
+  document.getElementById('btn-medium').innerText = t.medium;
+  document.getElementById('btn-hard').innerText = t.hard;
+  document.getElementById('hud-title').innerText = t.hudTitle;
+  document.getElementById('btn-sprint').innerText = t.sprint;
+  document.getElementById('death-title').innerText = t.deathTitle;
+  document.getElementById('win-title').innerText = t.winTitle;
+  document.getElementById('win-text').innerText = t.winText;
+  document.getElementById('btn-retry').innerText = t.btnRetry;
+  document.getElementById('btn-win-restart').innerText = t.btnPlayAgain;
+  document.getElementById('room-title').innerText = t.roomTitle;
+  document.getElementById('notes-text').placeholder = t.notesPh;
+  updateAttemptsUI();
+}
+
+// --- ЗВУК ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playWhisper() {
+  if (!window.speechSynthesis) return;
+  const t = translations[currentLang];
+  const text = t.whispers[Math.floor(Math.random() * t.whispers.length)];
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = currentLang === 'ru' ? 'ru-RU' : 'en-US';
+  utterance.pitch = 0.1; utterance.rate = 0.7; utterance.volume = 0.5;
+  window.speechSynthesis.speak(utterance);
+}
+
+function playFootstep() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+  osc.type = 'triangle'; osc.frequency.setValueAtTime(100, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+  gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+  osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+}
+
+function playHeartbeat() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+  osc.type = 'sine'; osc.frequency.setValueAtTime(60, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+  osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+}
+
+function playScream() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+  osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.5);
+  gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+  osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+}
+
+// --- ИГРА ---
+let gameState = { isPlaying: false, attempts: 3, maxAttempts: 3, enemySpeed: 0.03, playerSpeed: 0.08, isSprinting: false, exitPosition: new THREE.Vector3(18, 0, 18) };
+let stepTimer = 0, heartbeatTimer = 0, whisperTimer = 0;
+let isInStartRoom = true;
+let startDoor = null;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050505);
+scene.fog = new THREE.FogExp2(0x050505, 0.06);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.6, 0);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.getElementById('game').appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x111122, 1.0));
+const flashlight = new THREE.SpotLight(0xffffff, 2, 18, Math.PI / 4, 0.5, 1);
+camera.add(flashlight); flashlight.target.position.set(0, 0, -1); camera.add(flashlight.target); scene.add(camera);
+
+const mazeSize = 40;
+const wallGeo = new THREE.BoxGeometry(4, 4, 0.5);
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1 });
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 1 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(mazeSize*2, mazeSize*2), floorMat);
+floor.rotation.x = -Math.PI / 2; scene.add(floor);
+
+// Комната старта (Палата)
+const roomGeo = new THREE.BoxGeometry(10, 4, 10);
+const roomMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, side: THREE.BackSide });
+const startRoom = new THREE.Mesh(roomGeo, roomMat);
+startRoom.position.set(0, 2, 0);
+scene.add(startRoom);
+
+// Стол с компьютером
+const deskGeo = new THREE.BoxGeometry(4, 1, 2);
+const deskMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a });
+const desk = new THREE.Mesh(deskGeo, deskMat);
+desk.position.set(0, 0.5, -4.5); scene.add(desk);
+
+const pcGeo = new THREE.BoxGeometry(1.5, 1, 0.1);
+const pcMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+const pc = new THREE.Mesh(pcGeo, pcMat);
+pc.position.set(0, 1.5, -4.5); scene.add(pc);
+
+const screenGeo = new THREE.PlaneGeometry(1.3, 0.8);
+const screenMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+const screen = new THREE.Mesh(screenGeo, screenMat);
+screen.position.set(0, 1.5, -4.44); scene.add(screen);
+
+// Дверь из комнаты
+const doorGeo = new THREE.BoxGeometry(2, 3, 0.2);
+const doorMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a });
+startDoor = new THREE.Mesh(doorGeo, doorMat);
+startDoor.position.set(0, 1.5, 5);
+scene.add(startDoor);
+
+// Остальные стены (лабиринт)
+const walls = [];
+for (let i = 0; i < 120; i++) {
+  const wall = new THREE.Mesh(wallGeo, wallMat);
+  let x, z;
+  do { x = (Math.random() - 0.5) * mazeSize; z = (Math.random() - 0.5) * mazeSize; } while (Math.sqrt(x*x + z*z) < 15);
+  wall.position.set(x, 2, z);
+  if (Math.random() > 0.5) wall.rotation.y = Math.PI / 2;
+  scene.add(wall); walls.push(wall);
+}
+
+const exitDoor = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 0.5), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+exitDoor.position.set(gameState.exitPosition.x, 2, gameState.exitPosition.z); scene.add(exitDoor);
+const exitLight = new THREE.PointLight(0x00ff00, 2, 10);
+exitLight.position.set(gameState.exitPosition.x, 3, gameState.exitPosition.z); scene.add(exitLight);
+
+function createHumanoid() {
+  const group = new THREE.Group();
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xccbbaa, roughness: 0.8 });
+  const coatMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.9 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+  const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.8);
+  const legL = new THREE.Mesh(legGeo, darkMat); legL.position.set(-0.2, 0.4, 0);
+  const legR = new THREE.Mesh(legGeo, darkMat); legR.position.set(0.2, 0.4, 0);
+  group.add(legL); group.add(legR);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.9), coatMat); body.position.set(0, 1.2, 0); group.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), skinMat); head.position.set(0, 1.8, 0); group.add(head);
+  const armGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.8);
+  const armL = new THREE.Mesh(armGeo, coatMat); armL.position.set(-0.4, 1.4, -0.3); armL.rotation.x = Math.PI / 2;
+  const armR = new THREE.Mesh(armGeo, coatMat); armR.position.set(0.4, 1.4, -0.3); armR.rotation.x = Math.PI / 2;
+  group.add(armL); group.add(armR);
+  group.userData = { legL, legR, armL, armR };
+  return group;
+}
+
+const enemies = [];
+function spawnEnemy() {
+  const enemy = createHumanoid();
+  let x = (Math.random() > 0.5 ? 1 : -1) * (mazeSize / 2 - 2);
+  let z = (Math.random() > 0.5 ? 1 : -1) * (mazeSize / 2 - 2);
+  enemy.position.set(x, 0, z); scene.add(enemy); enemies.push(enemy);
+}
+
+// --- УПРАВЛЕНИЕ ---
+let moveX = 0, moveZ = 0, lookX = 0;
+let targetRotationY = 0;
+const leftZone = document.getElementById('joy-left'), leftStick = document.getElementById('stick-left');
+let leftActive = false;
+function handleLeftJoy(e) {
+  if (!leftActive) return; e.preventDefault();
+  const touch = e.touches ? e.touches[0] : e;
+  const rect = leftZone.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  let dx = touch.clientX - cx, dy = touch.clientY - cy;
+  const maxDist = rect.width / 3;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist > maxDist) { dx = dx / dist * maxDist; dy = dy / dist * maxDist; }
+  leftStick.style.transform = `translate(${dx}px, ${dy}px)`;
+  moveX = dx / maxDist; moveZ = dy / maxDist;
+}
+leftZone.addEventListener('touchstart', (e) => { leftActive = true; handleLeftJoy(e); }, {passive: false});
+leftZone.addEventListener('touchmove', handleLeftJoy, {passive: false});
+leftZone.addEventListener('touchend', () => { leftActive = false; leftStick.style.transform = `translate(0px, 0px)`; moveX = 0; moveZ = 0; });
+
+const rightZone = document.getElementById('joy-right'), rightStick = document.getElementById('stick-right');
+let rightActive = false;
+function handleRightJoy(e) {
+  if (!rightActive) return; e.preventDefault();
+  const touch = e.touches ? e.touches[0] : e;
+  const rect = rightZone.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  let dx = touch.clientX - cx;
+  const maxDist = rect.width / 3;
+  if (dx > maxDist) dx = maxDist; if (dx < -maxDist) dx = -maxDist;
+  rightStick.style.transform = `translate(${dx}px, 0px)`;
+  lookX = dx / maxDist;
+}
+rightZone.addEventListener('touchstart', (e) => { rightActive = true; handleRightJoy(e); }, {passive: false});
+rightZone.addEventListener('touchmove', handleRightJoy, {passive: false});
+rightZone.addEventListener('touchend', () => { rightActive = false; rightStick.style.transform = `translate(0px, 0px)`; lookX = 0; });
+
+const btnSprint = document.getElementById('btn-sprint');
+btnSprint.addEventListener('touchstart', (e) => { e.preventDefault(); gameState.isSprinting = true; });
+btnSprint.addEventListener('touchend', (e) => { e.preventDefault(); gameState.isSprinting = false; });
+
+// --- БРАУЗЕР И КОМП ---
+function openComputer() {
+  document.getElementById('room-ui').classList.add('show');
+  document.getElementById('browser-frame').src = 'https://ru.wikipedia.org/wiki/Лоботомия'; // Реальный браузер
+  gameState.isPlaying = false; // Останавливаем игру
+}
+
+function closeComputer() {
+  document.getElementById('room-ui').classList.remove('show');
+  gameState.isPlaying = true; // Возвращаем игру
+}
+
+function useNotes() {
+  alert("Вы ввели пароль и открыли дверь! Теперь можно выйти из палаты.");
+  startDoor.position.y = -10; // Убираем дверь (телепортируем вниз)
+  isInStartRoom = false;
+  closeComputer();
+}
+
+// --- ЦИКЛ ---
+const clock = new THREE.Clock();
+let walkTime = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (!gameState.isPlaying) { renderer.render(scene, camera); return; }
+
+  const dt = clock.getDelta();
+  walkTime += dt;
+
+  if (moveX !== 0 || moveZ !== 0) {
+    stepTimer += dt;
+    if (stepTimer > 0.4) { playFootstep(); stepTimer = 0; }
+  }
+
+  targetRotationY -= lookX * 0.05;
+  camera.rotation.y += (targetRotationY - camera.rotation.y) * 0.2;
+
+  const speed = gameState.isSprinting ? gameState.playerSpeed * 1.8 : gameState.playerSpeed;
+  const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0,1,0), camera.rotation.y);
+  const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0,1,0), camera.rotation.y);
+  const moveVec = new THREE.Vector3().addScaledVector(forward, -moveZ).addScaledVector(right, moveX);
+
+  if (moveVec.length() > 0) {
+    moveVec.normalize();
+    const nextX = camera.position.x + moveVec.x * speed, nextZ = camera.position.z + moveVec.z * speed;
+    let canX = true, canZ = true;
+    for (const wall of walls) {
+      const box = new THREE.Box3().setFromObject(wall);
+      if (box.containsPoint(new THREE.Vector3(nextX, 1, camera.position.z))) canX = false;
+      if (box.containsPoint(new THREE.Vector3(camera.position.x, 1, nextZ))) canZ = false;
+    }
+    if (canX) camera.position.x = nextX;
+    if (canZ) camera.position.z = nextZ;
+
+    // Проверка выхода из комнаты
+    if (isInStartRoom && startDoor.position.y > 0) {
+      if (camera.position.z > 4.5 && Math.abs(camera.position.x) < 1.5) {
+        camera.position.z = 4.5; // Не даем пройти сквозь дверь
+      }
+    }
+  }
+
+  // Кнопка взаимодействия (если смотрим на комп)
+  const distToPC = camera.position.distanceTo(new THREE.Vector3(0, 1.6, -4.5));
+  if (distToPC < 3 && isInStartRoom) {
+    document.getElementById('btn-interact').style.display = 'flex';
+  } else {
+    document.getElementById('btn-interact').style.display = 'none';
+  }
+
+  let enemyNear = false;
+  enemies.forEach(enemy => {
+    const dir = new THREE.Vector3().subVectors(camera.position, enemy.position); dir.y = 0;
+    const dist = dir.length();
+    if (dist < 20) {
+      enemyNear = true; dir.normalize(); enemy.position.addScaledVector(dir, gameState.enemySpeed);
+      enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
+      const swing = Math.sin(walkTime * 10) * 0.3;
+      enemy.userData.legL.rotation.x = swing; enemy.userData.legR.rotation.x = -swing;
+      enemy.userData.armL.rotation.x = Math.PI/2 + swing * 0.2; enemy.userData.armR.rotation.x = Math.PI/2 - swing * 0.2;
+    }
+    if (dist < 1.5) die();
+  });
+
+  whisperTimer += dt;
+  if (whisperTimer > 10 + Math.random() * 5) { playWhisper(); whisperTimer = 0; }
+
+  if (enemyNear) {
+    heartbeatTimer += dt;
+    if (heartbeatTimer > 0.8) { playHeartbeat(); heartbeatTimer = 0; }
+  }
+
+  const vig = document.getElementById('vignette');
+  if (enemyNear) vig.classList.add('danger'); else vig.classList.remove('danger');
+  if (camera.position.distanceTo(gameState.exitPosition) < 3 && !isInStartRoom) win();
+
+  renderer.render(scene, camera);
+}
+
+// --- ЛОГИКА ---
+function startGame(diff) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  document.getElementById('screen-start').classList.add('hidden');
+  gameState.isPlaying = true;
+  clock.start();
+  if (diff === 'easy') { gameState.attempts = 3; gameState.maxAttempts = 3; gameState.enemySpeed = 0.03; spawnEnemy(); }
+  else if (diff === 'medium') { gameState.attempts = 2; gameState.maxAttempts = 2; gameState.enemySpeed = 0.045; spawnEnemy(); spawnEnemy(); }
+  else if (diff === 'hard') { gameState.attempts = 1; gameState.maxAttempts = 1; gameState.enemySpeed = 0.06; spawnEnemy(); spawnEnemy(); spawnEnemy(); }
+  updateAttemptsUI();
+}
+
+function die() {
+  if (!gameState.isPlaying) return;
+  gameState.isPlaying = false;
+  playScream();
+  const flash = document.getElementById('damage-flash');
+  flash.style.opacity = '1'; setTimeout(() => flash.style.opacity = '0', 200);
+  gameState.attempts--; updateAttemptsUI();
+  const t = translations[currentLang];
+  if (gameState.attempts <= 0) {
+    document.getElementById('death-msg').innerText = t.deathMsgZero;
+    document.getElementById('btn-retry').innerText = t.btnRestart;
+  } else {
+    document.getElementById('death-msg').innerText = t.deathMsg + gameState.attempts;
+    document.getElementById('btn-retry').innerText = t.btnRetry;
+  }
+  document.getElementById('screen-death').classList.remove('hidden');
+}
+
+function retry() {
+  document.getElementById('screen-death').classList.add('hidden');
+  if (gameState.attempts <= 0) { location.reload(); return; }
+  camera.position.set(0, 1.6, 0); camera.rotation.y = 0;
+  isInStartRoom = true;
+  startDoor.position.y = 1.5; // Возвращаем дверь
+  enemies.forEach(e => {
+    let x = (Math.random() > 0.5 ? 1 : -1) * (mazeSize / 2 - 2);
+    let z = (Math.random() > 0.5 ? 1 : -1) * (mazeSize / 2 - 2);
+    e.position.set(x, 0, z);
+  });
+  gameState.isPlaying = true;
+}
+
+function win() {
+  if (!gameState.isPlaying) return;
+  gameState.isPlaying = false;
+  document.getElementById('screen-win').classList.remove('hidden');
+}
+
+function updateAttemptsUI() {
+  document.getElementById('attempts').innerText = translations[currentLang].attempts + gameState.attempts;
+}
+
+animate();
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
